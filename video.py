@@ -83,6 +83,7 @@ from umap_plots import BACKGROUND
 COLUMNS = 7                                      # panels across
 ROWS = 5                                         # and down
 PANEL = 480                                      # side of one panel, in pixels
+BOTTOM_PAD = PANEL // 2                          # blank strip below the grid, in pixels
 PATCHES = 4                                      # patch columns, P1 to this
 BEHAVIOUR_SPAN = 3                               # panels the behaviour figure spans
 BEHAVIOUR_LINE = '#52514e'                       # the current-trial line on it
@@ -876,9 +877,15 @@ def build_panels(bins, grid, data_file, paths):
     return [[panel for _, panel in row] for row in rows]
 
 
+_PAD = np.full((BOTTOM_PAD, COLUMNS * PANEL, 3),
+               ImageColor.getrgb(PLACEHOLDER_BG), dtype=np.uint8)
+
+
 def compose(panels, time_s):
-    """One video frame: every panel drawn, each row tiled, the rows stacked."""
-    return np.vstack([np.hstack([panel(time_s) for panel in row]) for row in panels])
+    """One video frame: every panel drawn, each row tiled, the rows stacked,
+    and BOTTOM_PAD blank pixels below them."""
+    return np.vstack([np.hstack([panel(time_s) for panel in row]) for row in panels]
+                     + [_PAD])
 
 
 # --------------------------------------------------------------------------
@@ -942,7 +949,7 @@ class Session:
 
 def frame_size():
     """The video's pixel dimensions, checked against what the encoder accepts."""
-    width, height = COLUMNS * PANEL, ROWS * PANEL
+    width, height = COLUMNS * PANEL, ROWS * PANEL + BOTTOM_PAD
     assert width % 2 == 0 and height % 2 == 0, \
         f'frame is {width}x{height}; libx264 needs even dimensions'
     return width, height
