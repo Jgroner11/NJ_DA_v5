@@ -97,10 +97,14 @@ INFO_INK = '#52514e'                             # values on the information pan
 INFO_LABEL = '#9a9892'                           # and the labels beside them
 INFO_X = PANEL // 12                             # its left margin
 INFO_VALUE_X = PANEL // 2                        # where the values line up
-INFO_TOP = PANEL // 3                            # the first labelled row
+INFO_TOP = PANEL // 4                            # the first labelled row
 INFO_STEP = PANEL // 8                           # and the gap to the next
 REWARD_DISPENSING_S = 2.0                        # how long after onset the info panel highlights a reward's size
 REWARD_INK = '#1f9e4a'                           # and the colour it highlights it in
+TRIAL_TYPES = {                                  # trial_type.csv's codes, as embedding_and_labels.m names them
+    1: 'pre rewarded', 2: 'pre perseveration', 3: 'pre exploration',
+    4: 'post switch', 5: 'post stay', 6: 'post return', 7: 'post omission',
+    8: 'post exploration', 9: 'post wrong rewarded'}
 TRAIL_SCALE = 'Turbo'                            # newest dot hot, oldest cold
 TRAIL_HOT = 0.85                                 # where on the scale the newest dot sits
 TRAIL_COLD = 0.20                                # and the oldest
@@ -303,6 +307,7 @@ class Bins:
     rewarded: np.ndarray                         # in a rewarded trial
     block_id: np.ndarray                         # every bin's block, gaps included
     patch_id: np.ndarray                         # its trial's port's patch, 0 between trials
+    trial_type: np.ndarray                       # a TRIAL_TYPES code, 0 between trials
     in_decision_region: np.ndarray               # head between the maze lines
     head_xy: np.ndarray
     width: float                                 # seconds in one bin
@@ -350,6 +355,7 @@ def load_bins(paths):
         rewarded=np.loadtxt(labels / 'rewarded.csv').astype(bool),
         block_id=np.loadtxt(labels / 'block_id.csv'),
         patch_id=np.loadtxt(labels / 'patch_id.csv'),
+        trial_type=np.loadtxt(labels / 'trial_type.csv').astype(int),
         in_decision_region=np.loadtxt(labels / 'in_decision_region.csv').astype(bool),
         head_xy=maze_pixels(np.loadtxt(labels / 'head_positions.csv', delimiter=','),
                             paths.maze_png),
@@ -742,10 +748,17 @@ def info_panel(bins, data_file):
     shown for the whole trial: "none" in an unrewarded trial, "-" between
     trials. It turns REWARD_INK for the REWARD_DISPENSING_S after that
     trial's reward onset.
+
+    "trial type" is the TRIAL_TYPES name of the bin's trial_type code, "-"
+    between trials. The longer names do not fit beside the label at the row
+    font, so each name's font is fitted once, here, rather than per frame.
     """
-    labels = ['time', 'trial', 'block', 'patch', 'reward size']
+    labels = ['time', 'trial', 'block', 'patch', 'reward size', 'trial type']
     reward_ms, since_onset = trial_rewards(bins)
     font = placeholder_font(PANEL // 18)
+    value_width = PANEL - INFO_X - INFO_VALUE_X
+    type_fonts = {code: fitted_font(name, value_width, PANEL // 18)
+                  for code, name in TRIAL_TYPES.items()}
 
     background = Image.new('RGB', (PANEL, PANEL), PLACEHOLDER_BG)
     fixed = ImageDraw.Draw(background)
@@ -770,6 +783,7 @@ def info_panel(bins, data_file):
         trial = bins.trial_ids[index]
         block = bins.block_id[index]
         patch = int(bins.patch_id[index])
+        trial_type = bins.trial_type[index]
 
         size = reward_ms[index]
         dispensing = since_onset[index] <= REWARD_DISPENSING_S   # NaN compares False
@@ -778,12 +792,14 @@ def info_panel(bins, data_file):
                   '-' if np.isnan(trial) else f'{int(trial)}',
                   '-' if np.isnan(block) else f'{int(block)}',
                   '-' if patch == 0 else f'{patch}',
-                  '-' if np.isnan(trial) else 'none' if np.isnan(size) else f'{int(size)} ms']
-        inks = [INFO_INK] * 4 + [REWARD_INK if dispensing else INFO_INK]
+                  '-' if np.isnan(trial) else 'none' if np.isnan(size) else f'{int(size)} ms',
+                  TRIAL_TYPES.get(trial_type, '-')]
+        inks = [INFO_INK] * 4 + [REWARD_INK if dispensing else INFO_INK, INFO_INK]
+        fonts = [font] * 5 + [type_fonts.get(trial_type, font)]
 
-        for row, (value, ink) in enumerate(zip(values, inks)):
+        for row, (value, ink, value_font) in enumerate(zip(values, inks, fonts)):
             pen.text((INFO_VALUE_X, INFO_TOP + row * INFO_STEP), value,
-                     font=font, fill=ink)
+                     font=value_font, fill=ink)
 
         return np.asarray(image)
 
