@@ -316,6 +316,71 @@ end
 writematrix(uint8(patch_bin).', fullfile(label_dir, 'patch_id.csv'));
 
 
+%% Trial type
+
+% Every trial gets exactly one type, split first by patch identification.
+%
+% Before identification:
+%   1 rewarded       any rewarded trial, correct or not
+%   2 perseveration  unrewarded, at the previous block's rewarded patch
+%   3 exploration    unrewarded, anywhere else -- the block's own correct
+%                    port included, and every unrewarded trial of block 1,
+%                    which has no previous block
+% After identification:
+%   4 switch         switch_stay_per_trial 1
+%   5 stay           switch_stay_per_trial 2
+%   6 return         correct and rewarded but neither: the trial before it
+%                    was not correct rewarded at the pair
+%   7 omission       correct, unrewarded
+%   8 exploration    wrong, unrewarded
+%   9 wrong rewarded wrong, rewarded
+%
+% A block's rewarded patch is the patch of the first port in its CorrectBlock
+% (56 is ports 5 and 6, patch 3). A visit to that patch is never perseveration,
+% even if the previous block happened to reward the same one.
+trial_type_names = ["pre rewarded", "pre perseveration", "pre exploration", ...
+    "post switch", "post stay", "post return", "post omission", ...
+    "post exploration", "post wrong rewarded"];
+
+block_patch = ceil(floor(trials.CorrectBlock(block_first) / 10) / 2);
+previous_block_patch = [NaN; block_patch(1:end-1)];
+current_patch_per_trial = block_patch(block_id_per_trial);
+previous_patch_per_trial = previous_block_patch(block_id_per_trial);
+at_previous_patch = patch_per_trial == previous_patch_per_trial & ...   % NaN compares false
+    patch_per_trial ~= current_patch_per_trial;
+
+pre = ~identified_per_trial;
+post = identified_per_trial;
+unrewarded = ~trial_is_rewarded;
+
+trial_type_masks = [ ...
+    pre & trial_is_rewarded, ...
+    pre & unrewarded & at_previous_patch, ...
+    pre & unrewarded & ~at_previous_patch, ...
+    post & switch_stay_per_trial == 1, ...
+    post & switch_stay_per_trial == 2, ...
+    post & trial_is_kept & switch_stay_per_trial == 0, ...
+    post & trial_is_correct & unrewarded, ...
+    post & ~trial_is_correct & unrewarded, ...
+    post & ~trial_is_correct & trial_is_rewarded];
+
+types_matched = sum(trial_type_masks, 2);
+assert(all(types_matched == 1), ...
+    '%d trials match no trial type and %d match more than one', ...
+    sum(types_matched == 0), sum(types_matched > 1));
+[~, trial_type_per_trial] = max(trial_type_masks, [], 2);
+
+% One value per bin; bins in the gaps between trials stay 0.
+trial_type_bin = zeros(1, n_bins);
+trial_type_bin(in_trial) = trial_type_per_trial(trial_id_per_bin(in_trial));
+
+for t = 1:numel(trial_type_names)
+    fprintf('%d %s: %d trials\n', t, trial_type_names(t), sum(trial_type_per_trial == t));
+end
+
+writematrix(uint8(trial_type_bin).', fullfile(label_dir, 'trial_type.csv'));
+
+
 %% Head position per bin
 
 % The video is stored per trial, so frames go onto the session clock the same
