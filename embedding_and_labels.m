@@ -296,6 +296,26 @@ fprintf('%d of %d trials after patch identification\n', ...
 writematrix(uint8(identified_bin).', fullfile(label_dir, 'patch_identified.csv'));
 
 
+%% Patch of each trial's port
+
+% A patch is a pair of neighbouring ports that reward together: patch 1 is
+% ports 1 and 2, patch 2 ports 3 and 4, patch 3 ports 5 and 6, patch 4 ports 7
+% and 8. This is the patch of the port the trial was actually at, whether or
+% not that was the block's rewarded patch.
+patch_per_trial = ceil(trials.Port / 2);
+assert(all(ismember(patch_per_trial, 1:4)), 'expected every trial at one of ports 1-8');
+
+% One value per bin; bins in the gaps between trials stay 0.
+patch_bin = zeros(1, n_bins);
+patch_bin(in_trial) = patch_per_trial(trial_id_per_bin(in_trial));
+
+for p = 1:4
+    fprintf('patch %d: %d trials\n', p, sum(patch_per_trial == p));
+end
+
+writematrix(uint8(patch_bin).', fullfile(label_dir, 'patch_id.csv'));
+
+
 %% Head position per bin
 
 % The video is stored per trial, so frames go onto the session clock the same

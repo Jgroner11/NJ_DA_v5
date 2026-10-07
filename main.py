@@ -13,7 +13,7 @@ file are only what a single hand-run would have used, and are overwritten here.
 
 Every window is rendered, including the stretches where the mouse was getting
 the task wrong -- it is the incorrect trajectories that are worth watching.
-Every block is on screen in every clip. While the mouse is somewhere a column's
+Every patch is on screen in every clip. While the mouse is somewhere a column's
 embedding was not fitted on, that column's trail carries on in magenta, at
 where run_umap.py placed those bins with UMAP.transform.
 

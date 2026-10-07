@@ -1,21 +1,24 @@
-"""Panel video: an 8x5 grid, one embedding per column, one colouring per row.
+"""Panel video: a 7x5 grid, one embedding per column, one colouring per row.
 
-Eight columns, one embedding each, and four rows, one colouring each, then a
+Seven columns, one embedding each, and four rows, one colouring each, then a
 fifth row for what is not an embedding:
 
-              Full   CR   B1   B2   B3   B4   B5   Region
-    plain      .     .    .    .    .    .    .    .        with trail
-    reward     .     .    .    .    .    .    .    .        by reward time
-    ports      .     .    .    .    .    .    .    .        by port
-    switch     .     .    .    .    .    .    .    .        by switch / stay group
-    row 5    info  maze  behaviour (3 wide) ----   -    -    -
+              Full   CR   P1   P2   P3   P4   Region
+    plain      .     .    .    .    .    .    .        with trail
+    reward     .     .    .    .    .    .    .        by reward time
+    ports      .     .    .    .    .    .    .        by port
+    switch     .     .    .    .    .    .    .        by switch / stay group
+    row 5    info  maze  behaviour (3 wide) ----   -    -
 
-CR is the correct rewarded bins of every block in one fit, B1..B5 the whole of
-each block, gaps between trials included, and Region the bins between the two
-lines of the Maze lines section in embedding_and_labels.m. A block beyond the
-fifth is fitted by run_umap.py but never shown; a column whose embedding does
-not exist -- a session with fewer blocks, or a selection too small to fit --
-is left as blank panels.
+CR is the correct rewarded bins of every block in one fit, P1..P4 the whole of
+each patch -- every bin of every trial the mouse spent at that patch's ports,
+so no gaps between trials -- and Region the bins between the two lines of the
+Maze lines section in embedding_and_labels.m. A column whose embedding does not
+exist -- a patch never visited, or a selection too small to fit -- is left as
+blank panels.
+
+Each block's whole embedding is fitted by run_umap.py too, and written out as
+the same four interactive plots, but has no column in the video.
 
 Only the plain row carries the moving trail. Where a column's embedding holds
 the current bin, the trail dot is on the Turbo ramp at its point; where it does
@@ -77,10 +80,10 @@ import umap_plots as plots
 from paths import session_paths
 from umap_plots import BACKGROUND
 
-COLUMNS = 8                                      # panels across
+COLUMNS = 7                                      # panels across
 ROWS = 5                                         # and down
 PANEL = 480                                      # side of one panel, in pixels
-BLOCKS_SHOWN = 5                                 # block columns, B1 to this
+PATCHES = 4                                      # patch columns, P1 to this
 BEHAVIOUR_SPAN = 3                               # panels the behaviour figure spans
 BEHAVIOUR_LINE = '#52514e'                       # the current-trial line on it
 BEHAVIOUR_LINE_WIDTH = 2                         # in pixels
@@ -95,7 +98,8 @@ INFO_X = PANEL // 12                             # its left margin
 INFO_VALUE_X = PANEL // 2                        # where the values line up
 INFO_TOP = PANEL // 3                            # the first labelled row
 INFO_STEP = PANEL // 8                           # and the gap to the next
-REWARD_DISPENSING_S = 2.0                        # how long the info panel shows a reward's size for
+REWARD_DISPENSING_S = 2.0                        # how long after onset the info panel highlights a reward's size
+REWARD_INK = '#1f9e4a'                           # and the colour it highlights it in
 TRAIL_SCALE = 'Turbo'                            # newest dot hot, oldest cold
 TRAIL_HOT = 0.85                                 # where on the scale the newest dot sits
 TRAIL_COLD = 0.20                                # and the oldest
@@ -297,6 +301,7 @@ class Bins:
     correct: np.ndarray                          # in a correct trial
     rewarded: np.ndarray                         # in a rewarded trial
     block_id: np.ndarray                         # every bin's block, gaps included
+    patch_id: np.ndarray                         # its trial's port's patch, 0 between trials
     in_decision_region: np.ndarray               # head between the maze lines
     head_xy: np.ndarray
     width: float                                 # seconds in one bin
@@ -343,12 +348,43 @@ def load_bins(paths):
         correct=np.loadtxt(labels / 'correct.csv').astype(bool),
         rewarded=np.loadtxt(labels / 'rewarded.csv').astype(bool),
         block_id=np.loadtxt(labels / 'block_id.csv'),
+        patch_id=np.loadtxt(labels / 'patch_id.csv'),
         in_decision_region=np.loadtxt(labels / 'in_decision_region.csv').astype(bool),
         head_xy=maze_pixels(np.loadtxt(labels / 'head_positions.csv', delimiter=','),
                             paths.maze_png),
         width=width,
         trail_bins=trail_bins,
         trail_rgb=trail_ramp(trail_bins))
+
+
+def trial_rewards(bins):
+    """Each bin's own trial's reward size in ms, NaN between trials and in
+    unrewarded trials, and the seconds since that reward's onset, NaN before it.
+
+    bins.reward_size_ms is the size of the bin's nearest reward, which early in
+    a trial can be the previous trial's. So each trial's size is read at its
+    reward onset -- its bin with the smallest non-negative time_nearest_reward,
+    whose nearest reward is necessarily the one just dispensed -- and spread
+    over the whole trial. The time since onset is counted from that bin too,
+    not read off time_nearest_reward: a trial can start within
+    REWARD_DISPENSING_S of the last one's reward, and a reward can come soon
+    enough after this one to be the nearer, so time_nearest_reward can belong
+    to a reward other than this trial's.
+    """
+    sizes = np.full(len(bins.times), np.nan)
+    since_onset = np.full(len(bins.times), np.nan)
+    in_rewarded = ~np.isnan(bins.trial_ids) & bins.rewarded
+    for trial in np.unique(bins.trial_ids[in_rewarded]):
+        rows = np.flatnonzero(bins.trial_ids == trial)
+        offsets = bins.time_nearest_reward[rows]
+        after = offsets >= 0                                   # NaN compares False
+        if after.any():
+            onset = rows[after][np.argmin(offsets[after])]
+            sizes[rows] = bins.reward_size_ms[onset]
+            later = rows[rows >= onset]
+            since_onset[later] = (bins.times[later] - bins.times[onset]
+                                  + bins.time_nearest_reward[onset])
+    return sizes, since_onset
 
 
 def bin_rows(mask):
@@ -435,14 +471,21 @@ class Column:
 
 
 def grid_columns(bins):
-    """The eight columns of the grid, left to right."""
+    """The seven columns of the grid, left to right."""
     columns = [Column('full', 'Full session', np.ones(len(bins.times), dtype=bool)),
                Column('correct_rewarded', 'Correct rewarded, all blocks',
                       bins.correct & bins.rewarded)]
-    columns += [Column(f'block_{block}_all', f'Block {block}', bins.block_id == block)
-                for block in range(1, BLOCKS_SHOWN + 1)]
+    columns += [Column(f'patch_{patch}_all', f'Patch {patch}', bins.patch_id == patch)
+                for patch in range(1, PATCHES + 1)]
     columns.append(Column('decision_region', 'Decision region', bins.in_decision_region))
     return columns
+
+
+def block_columns(bins):
+    """One embedding per block, written out as plots but given no grid column."""
+    blocks = np.unique(bins.block_id[np.isfinite(bins.block_id)]).astype(int)
+    return [Column(f'block_{block}_all', f'Block {block}', bins.block_id == block)
+            for block in blocks]
 
 
 @dataclass
@@ -537,6 +580,30 @@ def column_views(column, points, transformed, bins, groups, cfg, port_colours):
         for view, figure in zip(VIEWS[1:], [coloured, ports, switch_stay])]
 
 
+def written_views(column, points, bins, groups, cfg, port_colours):
+    """One column's four views, in VIEWS order, as figures only.
+
+    The same figures column_views builds, but for an embedding no panel shows:
+    nothing is rasterised, so they cost no kaleido renders, and the plain view
+    needs no pixel map because nothing trails on it.
+    """
+    camera_key = column.camera_key
+    camera = read_camera(cfg, camera_key)
+    stem = f'umap_{column.name}'
+
+    labels = bins.time_nearest_reward[column.mask]
+    report_labels(labels, points, column.title)
+
+    figures = [plots.plain_figure(points, column.title, camera, PANEL),
+               plots.coloured_figure(points, labels, column.title, camera, PANEL),
+               plots.port_figure(points, bins.port_ids[column.mask], port_colours,
+                                 column.title, camera, PANEL),
+               plots.switch_stay_figure(points, groups[column.mask],
+                                        column.title, camera, PANEL)]
+    return [Layer(figure, None, name=f'{stem}_{view}', camera_key=camera_key)
+            for view, figure in zip(VIEWS, figures)]
+
+
 def render_layers(bins, cfg, port_colours, paths):
     """Every embedding rendered once, with the pixel map its trail needs.
 
@@ -562,6 +629,11 @@ def render_layers(bins, cfg, port_colours, paths):
             extras.append(Layer(
                 plots.plain_projection(points, XY, f'{column.title} - xy projection', PANEL),
                 None, name='umap_decision_region_xy_uncolored'))
+
+    for column in block_columns(bins):
+        points = load_points(column, paths)
+        if points is not None:
+            extras += written_views(column, points, bins, groups, cfg, port_colours)
 
     return Grid(columns=columns, cells=cells, extras=extras)
 
@@ -662,19 +734,16 @@ def info_panel(bins, data_file):
     plotly figure.
 
     "block" is block_id, so a bin between trials reads the block of the trial
-    before it, as every block column counts it. A bin between trials has no
-    trial number.
+    before it, as every block embedding counts it. A bin between trials has no
+    trial number, and no patch: patch_id is 0 there, as no patch column holds it.
 
-    "reward size" reads bins.time_nearest_reward, which is signed (negative
-    before a reward, positive after -- see embedding_and_labels.m), so 0 marks
-    reward onset and the window checked is [0, REWARD_DISPENSING_S]. Outside
-    that window, or where time_nearest_reward is NaN (no reward on either side
-    of this bin), it reads None rather than bins.reward_size_ms -- that field
-    is paired with time_nearest_reward but not itself windowed, so reading it
-    unconditionally would show a reward's size long before or after it was
-    actually dispensed.
+    "reward size" is the current trial's own reward, from trial_rewards,
+    shown for the whole trial: "none" in an unrewarded trial, "-" between
+    trials. It turns REWARD_INK for the REWARD_DISPENSING_S after that
+    trial's reward onset.
     """
-    labels = ['time', 'trial', 'block', 'reward size']
+    labels = ['time', 'trial', 'block', 'patch', 'reward size']
+    reward_ms, since_onset = trial_rewards(bins)
     font = placeholder_font(PANEL // 18)
 
     background = Image.new('RGB', (PANEL, PANEL), PLACEHOLDER_BG)
@@ -699,18 +768,21 @@ def info_panel(bins, data_file):
         index = bin_at(bins, time_s)
         trial = bins.trial_ids[index]
         block = bins.block_id[index]
+        patch = int(bins.patch_id[index])
 
-        reward_offset = bins.time_nearest_reward[index]
-        dispensing = 0 <= reward_offset <= REWARD_DISPENSING_S   # NaN compares False
+        size = reward_ms[index]
+        dispensing = since_onset[index] <= REWARD_DISPENSING_S   # NaN compares False
 
         values = [f'{bins.times[index]:.2f} s',
                   '-' if np.isnan(trial) else f'{int(trial)}',
                   '-' if np.isnan(block) else f'{int(block)}',
-                  f'{int(bins.reward_size_ms[index])} ms' if dispensing else 'None']
+                  '-' if patch == 0 else f'{patch}',
+                  '-' if np.isnan(trial) else 'none' if np.isnan(size) else f'{int(size)} ms']
+        inks = [INFO_INK] * 4 + [REWARD_INK if dispensing else INFO_INK]
 
-        for row, value in enumerate(values):
+        for row, (value, ink) in enumerate(zip(values, inks)):
             pen.text((INFO_VALUE_X, INFO_TOP + row * INFO_STEP), value,
-                     font=font, fill=INFO_INK)
+                     font=font, fill=ink)
 
         return np.asarray(image)
 

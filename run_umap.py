@@ -1,5 +1,5 @@
 """UMAP embeddings of the binned session — the whole session, its correct
-rewarded bins, and each block both filtered that way and whole.
+rewarded bins, and each block and each patch both filtered that way and whole.
 
 Reads the CSVs written by embedding_and_labels.m and writes one .npy per embedding into
 data/<session>/embeddings/, for the session parameters.yaml names -- see
@@ -9,16 +9,20 @@ paths.py. No plotting: this only produces the embeddings.
     umap_correct_rewarded.npy  (n_kept, n_components)   correct_rewarded
     umap_block_<N>_cr.npy      (n_kept, n_components)   correct_rewarded & block_id == N
     umap_block_<N>_all.npy     (n_kept, n_components)   block_id == N
+    umap_patch_<P>_cr.npy      (n_kept, n_components)   correct_rewarded & patch_id == P
+    umap_patch_<P>_all.npy     (n_kept, n_components)   patch_id == P
     umap_decision_region.npy   (n_kept, n_components)   in_decision_region
 
-and, for every embedding the video shows other than the full one, every bin it
-was not fitted on placed into it with UMAP.transform:
+and, for every embedding the video shows other than the full one -- the
+correct rewarded, patch and decision region ones -- every bin it was not fitted
+on placed into it with UMAP.transform:
 
     umap_<name>_transformed.npy  (n_bins, n_components)  NaN on the fitted bins
 
-Every selection is made from three per-bin columns, correct.csv and rewarded.csv
-(0/1, combined here into correct_rewarded) and block_id.csv (the block each bin falls in, the gaps between trials
-included) -- see selections(). A masked embedding's row i is the i-th True
+Every selection is made from four per-bin columns, correct.csv and rewarded.csv
+(0/1, combined here into correct_rewarded), block_id.csv (the block each bin falls in, the gaps between trials
+included) and patch_id.csv (the patch of the port each bin's trial was at, 0
+between trials) -- see selections(). A masked embedding's row i is the i-th True
 entry of its mask, so the matching times and positions are bin_times.csv[mask]
 and head_positions.csv[mask].
 
@@ -131,10 +135,15 @@ def selections(n_bins):
     between trials take the block of the trial before them -- but only bins
     inside a correct rewarded trial are correct_rewarded, so the _cr selections
     hold no gap bins and the _all ones do.
+
+    Patch P is the same pair over patch_id instead, the patch of the port each
+    bin's trial was at. The gaps between trials are patch 0, which no patch
+    selects, so neither patch selection holds gap bins.
     """
     correct_rewarded = (load_column('correct.csv', n_bins).astype(bool)
                         & load_column('rewarded.csv', n_bins).astype(bool))
     block_id = load_column('block_id.csv', n_bins)
+    patch_id = load_column('patch_id.csv', n_bins)
     in_decision_region = load_column('in_decision_region.csv', n_bins).astype(bool)
 
     found = [('correct_rewarded', correct_rewarded),
@@ -143,6 +152,10 @@ def selections(n_bins):
         in_block = block_id == block
         found.append((f'block_{block}_cr', correct_rewarded & in_block))
         found.append((f'block_{block}_all', in_block))
+    for patch in np.unique(patch_id[patch_id > 0]).astype(int):
+        in_patch = patch_id == patch
+        found.append((f'patch_{patch}_cr', correct_rewarded & in_patch))
+        found.append((f'patch_{patch}_all', in_patch))
     return found
 
 
@@ -208,11 +221,12 @@ def transformed_for(model, rows, key):
 def wants_transform(name):
     """Whether the video needs this embedding's left-out bins placed into it.
 
-    Not the full embedding, which leaves nothing out, nor a block's correct
-    rewarded one, which no panel shows; a transform of 20,000-odd bins is not
-    free.
+    Not the full embedding, which leaves nothing out, nor any block's or a
+    patch's correct rewarded one, which no panel shows; a transform of 20,000-odd
+    bins is not free.
     """
-    return name != 'full' and not name.endswith('_cr')
+    return (name != 'full' and not name.endswith('_cr')
+            and not name.startswith('block_'))
 
 
 spikes, spikes_digest = load_spikes()
