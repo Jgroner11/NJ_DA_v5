@@ -9,6 +9,7 @@ every input and output together and a second session never overwrites the first:
     data/<session>/embeddings/             run_umap.py
     figures/<session>/behaviour.png        behaviour_plot.m
     figures/<session>/umap/                video.write_interactive_plots
+    figures/<session>/prediscovery_patch_comparison/   patch_comparison.py
     figures/<session>/clips/<sweep>/       main.py
     figures/<session>/trial_ends/          main.py, one frame per trial's last bin
     figures/<session>/session_video.mp4    video.write_video, when run by hand
@@ -39,6 +40,7 @@ class SessionPaths:
     emb_dir: Path                                # umap_*.npy
     fig_dir: Path                                # everything plotted from it
     umap_dir: Path                               # the interactive html plots
+    patch_comparison_dir: Path                   # each patch, whole and after identification
     clip_dir: Path                               # one folder per sweep
     trial_end_dir: Path                          # the frame at each trial's end
 
@@ -80,5 +82,6 @@ def session_paths(params):
         emb_dir=Path('data') / session / 'embeddings',
         fig_dir=fig_dir,
         umap_dir=fig_dir / 'umap',
+        patch_comparison_dir=fig_dir / 'prediscovery_patch_comparison',
         clip_dir=fig_dir / 'clips',
         trial_end_dir=fig_dir / 'trial_ends')

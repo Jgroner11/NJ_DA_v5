@@ -3,6 +3,7 @@
     embedding_and_labels.m   bin the spikes and write the per-bin labels
     behaviour_plot.m         the behaviour figure
     run_umap.py              fit the embeddings
+    patch_comparison.py      each patch's embedding beside its post-identification one
     warp.py                  the warped trajectories and their mean per trial type
     main.py                  the interactive plots and the clip sweep
 
@@ -41,6 +42,7 @@ STEPS = [
     ('labels', 'embedding_and_labels.m', 'matlab'),
     ('behaviour', 'behaviour_plot.m', 'matlab'),
     ('umap', 'run_umap.py', 'python'),
+    ('compare', 'patch_comparison.py', 'python'),
     ('warp', 'warp.py', 'python'),
     ('clips', 'main.py', 'python'),
 ]

@@ -495,6 +495,13 @@ def block_columns(bins):
             for block in blocks]
 
 
+def identified_columns(bins):
+    """Each patch after identification, written out as one plot but given no grid column."""
+    return [Column(f'patch_{patch}_identified', f'Patch {patch}, after identification',
+                   (bins.patch_id == patch) & bins.patch_identified)
+            for patch in range(1, PATCHES + 1)]
+
+
 @dataclass
 class Grid:
     """Every rendered view, and the ones only written out.
@@ -641,6 +648,16 @@ def render_layers(bins, cfg, port_colours, paths):
         points = load_points(column, paths)
         if points is not None:
             extras += written_views(column, points, bins, groups, cfg, port_colours)
+
+    # Only the port view of each identified patch, coloured by where the mouse is.
+    for column in identified_columns(bins):
+        points = load_points(column, paths)
+        if points is not None:
+            figure = plots.port_figure(points, bins.port_ids[column.mask], port_colours,
+                                       column.title, read_camera(cfg, column.camera_key),
+                                       PANEL)
+            extras.append(Layer(figure, None, name=f'umap_{column.name}_ports',
+                                camera_key=column.camera_key))
 
     return Grid(columns=columns, cells=cells, extras=extras)
 

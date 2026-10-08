@@ -11,6 +11,7 @@ paths.py. No plotting: this only produces the embeddings.
     umap_block_<N>_all.npy     (n_kept, n_components)   block_id == N
     umap_patch_<P>_cr.npy      (n_kept, n_components)   correct_rewarded & patch_id == P
     umap_patch_<P>_all.npy     (n_kept, n_components)   patch_id == P
+    umap_patch_<P>_identified.npy (n_kept, n_components) patch_identified & patch_id == P
     umap_decision_region.npy   (n_kept, n_components)   in_decision_region
 
 and, for every embedding the video shows other than the full one -- the
@@ -19,10 +20,11 @@ on placed into it with UMAP.transform:
 
     umap_<name>_transformed.npy  (n_bins, n_components)  NaN on the fitted bins
 
-Every selection is made from four per-bin columns, correct.csv and rewarded.csv
+Every selection is made from five per-bin columns, correct.csv and rewarded.csv
 (0/1, combined here into correct_rewarded), block_id.csv (the block each bin falls in, the gaps between trials
-included) and patch_id.csv (the patch of the port each bin's trial was at, 0
-between trials) -- see selections(). A masked embedding's row i is the i-th True
+included), patch_id.csv (the patch of the port each bin's trial was at, 0
+between trials) and patch_identified.csv (whether its block's patch had been
+identified by then, 0 between trials) -- see selections(). A masked embedding's row i is the i-th True
 entry of its mask, so the matching times and positions are bin_times.csv[mask]
 and head_positions.csv[mask].
 
@@ -138,12 +140,15 @@ def selections(n_bins):
 
     Patch P is the same pair over patch_id instead, the patch of the port each
     bin's trial was at. The gaps between trials are patch 0, which no patch
-    selects, so neither patch selection holds gap bins.
+    selects, so neither patch selection holds gap bins. Patch P identified
+    keeps only the bins of its trials that came after their block's patch was
+    identified, so no trial from before identification shapes that embedding.
     """
     correct_rewarded = (load_column('correct.csv', n_bins).astype(bool)
                         & load_column('rewarded.csv', n_bins).astype(bool))
     block_id = load_column('block_id.csv', n_bins)
     patch_id = load_column('patch_id.csv', n_bins)
+    patch_identified = load_column('patch_identified.csv', n_bins).astype(bool)
     in_decision_region = load_column('in_decision_region.csv', n_bins).astype(bool)
 
     found = [('correct_rewarded', correct_rewarded),
@@ -156,6 +161,7 @@ def selections(n_bins):
         in_patch = patch_id == patch
         found.append((f'patch_{patch}_cr', correct_rewarded & in_patch))
         found.append((f'patch_{patch}_all', in_patch))
+        found.append((f'patch_{patch}_identified', in_patch & patch_identified))
     return found
 
 
@@ -221,11 +227,11 @@ def transformed_for(model, rows, key):
 def wants_transform(name):
     """Whether the video needs this embedding's left-out bins placed into it.
 
-    Not the full embedding, which leaves nothing out, nor any block's or a
-    patch's correct rewarded one, which no panel shows; a transform of 20,000-odd
-    bins is not free.
+    Not the full embedding, which leaves nothing out, nor any block's, a
+    patch's correct rewarded or a patch's identified one, which no panel shows;
+    a transform of 20,000-odd bins is not free.
     """
-    return (name != 'full' and not name.endswith('_cr')
+    return (name != 'full' and not name.endswith(('_cr', '_identified'))
             and not name.startswith('block_'))
 
 
